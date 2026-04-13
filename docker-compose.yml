@@ -1,0 +1,38 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - SLICEOPS_REDIS_URL=redis://redis:6379/0
+      - SLICEOPS_TEMP_DIR=/tmp/sliceops
+    depends_on:
+      - redis
+    tmpfs:
+      - /tmp/sliceops:size=512M
+    volumes:
+      - ./app:/app/app
+
+  worker:
+    build: .
+    command: uv run celery -A app.worker.celery_app worker --loglevel=info
+    environment:
+      - SLICEOPS_REDIS_URL=redis://redis:6379/0
+      - SLICEOPS_TEMP_DIR=/tmp/sliceops
+    depends_on:
+      - redis
+    tmpfs:
+      - /tmp/sliceops:size=512M
+
+  beat:
+    build: .
+    command: uv run celery -A app.worker.celery_app beat --loglevel=info
+    environment:
+      - SLICEOPS_REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis

@@ -1,0 +1,113 @@
+import pytest
+from unittest.mock import patch, MagicMock
+from pathlib import Path
+
+
+class TestHealthEndpoint:
+    async def test_health(self, client):
+        resp = await client.get("/api/v1/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+
+class TestSliceEndpointSync:
+    async def test_slice_sync_with_upload(self, client, sample_stl, tmp_path, mock_storage):
+        # Create the job dir so the mock works
+        job_dir = tmp_path / "test-job"
+        job_dir.mkdir()
+        mock_storage.create_job_dir.return_value = str(job_dir)
+        mock_storage.get_job_dir.return_value = str(job_dir)
+
+        resp = await client.post(
+            "/api/v1/slice",
+            files={"file": ("cube.stl", sample_stl, "application/octet-stream")},
+            data={"layer_height": "0.2", "infill_percent": "20", "filament_cost": "20.0"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["mode"] == "sync"
+        assert body["status"] == "completed"
+        assert body["result"]["estimated_time_seconds"] == 3720
+        assert body["result"]["estimated_cost"] == 0.57
+
+    async def test_slice_requires_file_or_url(self, client):
+        resp = await client.post(
+            "/api/v1/slice",
+            data={"layer_height": "0.2"},
+        )
+        assert resp.status_code == 400
+
+
+class TestSliceEndpointAsync:
+    async def test_large_file_returns_async(self, client, mock_storage, tmp_path):
+        # Create a file larger than sync threshold (default 10MB)
+        job_dir = tmp_path / "test-job"
+        job_dir.mkdir()
+        mock_storage.create_job_dir.return_value = str(job_dir)
+
+        large_content = b"x" * (11 * 1024 * 1024)  # 11MB
+
+        with patch("app.api.routes.run_slice_job") as mock_task:
+            mock_async_result = MagicMock()
+            mock_async_result.id = "celery-task-id"
+            mock_task.delay.return_value = mock_async_result
+
+            resp = await client.post(
+                "/api/v1/slice",
+                files={"file": ("big.stl", large_content, "application/octet-stream")},
+            )
+
+        assert resp.status_code == 202
+        body = resp.json()
+        assert body["mode"] == "async"
+        assert body["status"] == "accepted"
+        assert "job_id" in body
+        assert "poll_url" in body
+
+
+class TestJobStatusEndpoint:
+    async def test_job_not_found(self, client):
+        resp = await client.get("/api/v1/jobs/nonexistent")
+        assert resp.status_code == 404
+
+    async def test_job_completed(self, client, app):
+        # Store a completed result in app state
+        app.state.job_results = {
+            "job-1": {
+                "status": "completed",
+                "result": {
+                    "estimated_time_seconds": 100,
+                    "estimated_time_human": "1m 40s",
+                    "filament_used_grams": 5.0,
+                    "filament_used_meters": 1.7,
+                    "layer_count": 50,
+                    "estimated_cost": 0.10,
+                    "gcode_download_url": "/api/v1/jobs/job-1/gcode",
+                },
+            }
+        }
+        resp = await client.get("/api/v1/jobs/job-1")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "completed"
+
+
+class TestGcodeDownload:
+    async def test_gcode_not_found(self, client):
+        resp = await client.get("/api/v1/jobs/nonexistent/gcode")
+        assert resp.status_code == 404
+
+    async def test_gcode_download(self, client, app, mock_storage, tmp_path):
+        # Set up a gcode file
+        job_dir = tmp_path / "job-1"
+        job_dir.mkdir()
+        gcode_file = job_dir / "output.gcode"
+        gcode_file.write_text("G28\nG1 X0 Y0\n")
+        mock_storage.get_file_path.return_value = str(gcode_file)
+        mock_storage.get_job_dir.return_value = str(job_dir)
+
+        app.state.job_results = {"job-1": {"status": "completed"}}
+
+        resp = await client.get("/api/v1/jobs/job-1/gcode")
+        assert resp.status_code == 200
+        assert "G28" in resp.text

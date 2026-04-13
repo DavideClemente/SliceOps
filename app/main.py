@@ -1,0 +1,34 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from app.api.routes import router
+from app.config import Settings
+from app.services.orca_slicer import OrcaSlicerService
+from app.storage.temp_storage import TempStorage
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = Settings()
+    app.state.storage = TempStorage(base_dir=settings.temp_dir)
+    app.state.slicer = OrcaSlicerService(
+        executable=settings.orca_slicer_path,
+        timeout=settings.slicer_timeout_seconds,
+    )
+    app.state.job_results = {}
+    yield
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="SliceOps",
+        description="3D printing time and cost estimation API",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
+    app.include_router(router)
+    return app
+
+
+app = create_app()

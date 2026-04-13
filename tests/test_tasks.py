@@ -44,3 +44,16 @@ class TestSliceTask:
             assert result["filament_used_grams"] == 28.4
             assert result["estimated_cost"] == 0.57
             mock_storage.delete_file.assert_called_once_with("job-1", "model.stl")
+
+
+class TestCleanupTask:
+    def test_sweep_expired_files(self, tmp_path):
+        with patch("app.worker.tasks.get_storage") as mock_get_storage:
+            mock_storage = MagicMock()
+            mock_get_storage.return_value = mock_storage
+            mock_storage.sweep_expired.return_value = ["old-job-1", "old-job-2"]
+
+            from app.worker.tasks import sweep_expired_files
+            removed = sweep_expired_files()
+            assert removed == ["old-job-1", "old-job-2"]
+            mock_storage.sweep_expired.assert_called_once()

@@ -57,3 +57,9 @@ def run_slice_job(self, job_id: str, params_dict: dict) -> dict:
         "layer_count": result.layer_count,
         "estimated_cost": result.compute_cost(filament_cost),
     }
+
+
+@celery_app.task(name="sliceops.sweep_expired")
+def sweep_expired_files() -> list[str]:
+    storage = get_storage()
+    return storage.sweep_expired(ttl_minutes=_settings.gcode_ttl_minutes)

@@ -111,3 +111,34 @@ class TestGcodeDownload:
         resp = await client.get("/api/v1/jobs/job-1/gcode")
         assert resp.status_code == 200
         assert "G28" in resp.text
+
+
+class TestFileSizeLimit:
+    async def test_file_too_large_returns_413(self, client, mock_storage, tmp_path):
+        job_dir = tmp_path / "test-job"
+        job_dir.mkdir()
+        mock_storage.create_job_dir.return_value = str(job_dir)
+
+        # Default max is 100MB, create something larger
+        # Instead, override settings to use 1MB limit for testing
+        from app.api import routes
+        original = routes.settings.max_file_size_mb
+        routes.settings.max_file_size_mb = 1
+
+        large_content = b"x" * (2 * 1024 * 1024)  # 2MB
+        resp = await client.post(
+            "/api/v1/slice",
+            files={"file": ("big.stl", large_content, "application/octet-stream")},
+        )
+        routes.settings.max_file_size_mb = original
+        assert resp.status_code == 413
+
+
+class TestParameterValidation:
+    async def test_invalid_infill_returns_422(self, client):
+        resp = await client.post(
+            "/api/v1/slice",
+            files={"file": ("cube.stl", b"solid cube\nendsolid cube", "application/octet-stream")},
+            data={"infill_percent": "150"},
+        )
+        assert resp.status_code == 422

@@ -2,6 +2,8 @@ import uuid
 
 from fastapi import APIRouter, Request, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import ValidationError
+from starlette.background import BackgroundTask
 from typing import Optional
 
 from app.api.dependencies import ingest_file
@@ -42,6 +44,27 @@ async def slice_model(
         content, filename = await ingest_file(request, file, file_url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Validate parameters
+    try:
+        validated = SliceRequest(
+            layer_height=layer_height,
+            infill_percent=infill_percent,
+            print_speed=print_speed,
+            support_material=support_material,
+            filament_type=filament_type,
+            filament_cost=filament_cost,
+            nozzle_size=nozzle_size,
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    max_size = settings.max_file_size_mb * 1024 * 1024
+    if len(content) > max_size:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds maximum size of {settings.max_file_size_mb}MB",
+        )
 
     job_id = str(uuid.uuid4())
     storage = request.app.state.storage
@@ -102,8 +125,6 @@ async def slice_model(
         )
 
         # Store result for job status lookups
-        if not hasattr(request.app.state, "job_results"):
-            request.app.state.job_results = {}
         request.app.state.job_results[job_id] = {
             "status": "completed",
             "result": response_result.model_dump(),
@@ -115,8 +136,6 @@ async def slice_model(
         # Async path
         task = run_slice_job.delay(job_id=job_id, params_dict=params_dict)
 
-        if not hasattr(request.app.state, "job_results"):
-            request.app.state.job_results = {}
         request.app.state.job_results[job_id] = {
             "status": "pending",
             "celery_task_id": task.id,
@@ -166,25 +185,19 @@ async def get_job_status(job_id: str, request: Request):
 async def download_gcode(job_id: str, request: Request):
     job_results = getattr(request.app.state, "job_results", {})
     if job_id not in job_results:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+        raise HTTPException(status_code=404, detail="Job not found")
 
     storage = request.app.state.storage
-
-    # Try to get gcode file path from storage
     gcode_path = storage.get_file_path(job_id, "output.gcode")
     if gcode_path is None:
-        # Try to find gcode in job dir
-        job_dir = storage.get_job_dir(job_id)
-        if job_dir is None:
-            raise HTTPException(status_code=404, detail="GCode file not found")
-        from pathlib import Path
-        candidates = list(Path(job_dir).glob("*.gcode"))
-        if not candidates:
-            raise HTTPException(status_code=404, detail="GCode file not found")
-        gcode_path = str(candidates[0])
+        raise HTTPException(status_code=404, detail="G-code file not found")
+
+    # Clean up job after file is sent
+    cleanup = BackgroundTask(storage.cleanup_job, job_id)
 
     return FileResponse(
-        path=gcode_path,
+        gcode_path,
+        media_type="application/octet-stream",
         filename=f"{job_id}.gcode",
-        media_type="text/plain",
+        background=cleanup,
     )

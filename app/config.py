@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     model_config = {"env_prefix": "SLICEOPS_"}
 
     sync_threshold_mb: int = 10
+    max_file_size_mb: int = 100
     temp_dir: str = "/tmp/sliceops"
     gcode_ttl_minutes: int = 15
     slicer_timeout_seconds: int = 300

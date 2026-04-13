@@ -16,10 +16,13 @@ async def ingest_file(
 
     if file_url is not None:
         import httpx
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(file_url)
-            resp.raise_for_status()
-            filename = file_url.split("/")[-1] or "model.stl"
-            return resp.content, filename
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(file_url)
+                resp.raise_for_status()
+                filename = file_url.split("/")[-1] or "model.stl"
+                return resp.content, filename
+        except httpx.HTTPError as e:
+            raise ValueError(f"Failed to fetch file from URL: {e}")
 
     raise ValueError("Either 'file' or 'file_url' must be provided")

@@ -132,11 +132,34 @@ async def slice_model(
 @router.get("/jobs/{job_id}")
 async def get_job_status(job_id: str, request: Request):
     job_results = getattr(request.app.state, "job_results", {})
-    if job_id not in job_results:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-    job_data = job_results[job_id]
-    return {"job_id": job_id, **job_data}
+    if job_id not in job_results:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = job_results[job_id]
+    status = job["status"]
+
+    # For async jobs, check Celery task state
+    if status in ("pending", "processing") and "celery_task_id" in job:
+        from celery.result import AsyncResult
+        from app.worker.celery_app import celery_app
+
+        task_result = AsyncResult(job["celery_task_id"], app=celery_app)
+        if task_result.ready():
+            if task_result.successful():
+                result_data = task_result.result
+                result_data["gcode_download_url"] = f"/api/v1/jobs/{job_id}/gcode"
+                job["status"] = "completed"
+                job["result"] = result_data
+                status = "completed"
+            else:
+                job["status"] = "failed"
+                status = "failed"
+        elif task_result.state == "STARTED":
+            status = "processing"
+
+    result = job.get("result")
+    return JobStatusResponse(job_id=job_id, status=status, result=result)
 
 
 @router.get("/jobs/{job_id}/gcode")

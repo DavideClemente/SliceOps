@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 from pathlib import Path
 
@@ -12,7 +13,7 @@ class OrcaSlicerService(BaseSlicer):
 
     async def slice(self, stl_path: str, output_dir: str, params: SliceParams) -> SliceResult:
         gcode_path = str(Path(output_dir) / "output.gcode")
-        cmd = self._build_command(stl_path, gcode_path, params)
+        cmd = self._build_command(stl_path, output_dir, params)
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -36,13 +37,29 @@ class OrcaSlicerService(BaseSlicer):
         gcode_content = Path(gcode_path).read_text()
         return self._parse_gcode_metadata(gcode_content)
 
-    def _build_command(self, stl_path: str, gcode_path: str, params: SliceParams) -> list[str]:
+    def _write_settings_json(self, output_dir: str, params: SliceParams) -> str:
+        """Write a slicer settings JSON file and return its path."""
+        settings = {
+            "layer_height": params.layer_height,
+            "sparse_infill_density": f"{params.infill_percent}%",
+            "enable_support": "1" if params.support_material else "0",
+        }
+        if params.print_speed is not None:
+            settings["default_speed"] = params.print_speed
+
+        settings_path = str(Path(output_dir) / "settings.json")
+        Path(settings_path).write_text(json.dumps(settings))
+        return settings_path
+
+    def _build_command(self, stl_path: str, output_dir: str, params: SliceParams) -> list[str]:
+        settings_path = self._write_settings_json(output_dir, params)
         cmd = [
             self._executable,
             "--slice", "0",
-            "--outputdir", str(Path(gcode_path).parent),
+            "--load-settings", settings_path,
+            "--outputdir", output_dir,
+            stl_path,
         ]
-        cmd.append(stl_path)
         return cmd
 
     @staticmethod

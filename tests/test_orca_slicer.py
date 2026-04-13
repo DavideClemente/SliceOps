@@ -1,4 +1,8 @@
+import json
+from pathlib import Path
+
 from app.services.orca_slicer import OrcaSlicerService
+from app.services.slicer import SliceParams
 
 
 SAMPLE_GCODE_METADATA = """\
@@ -40,3 +44,27 @@ class TestGcodeParsing:
         gcode = "; estimated printing time (normal mode) = 2h 15m 45s\n"
         result = OrcaSlicerService._parse_gcode_metadata(gcode)
         assert result.estimated_time_seconds == 8145
+
+
+class TestSettingsGeneration:
+    def test_write_settings_json(self, tmp_path):
+        slicer = OrcaSlicerService()
+        params = SliceParams(layer_height=0.1, infill_percent=80, support_material=True, print_speed=100.0)
+        settings_path = slicer._write_settings_json(str(tmp_path), params)
+
+        settings = json.loads(Path(settings_path).read_text())
+        assert settings["layer_height"] == 0.1
+        assert settings["sparse_infill_density"] == "80%"
+        assert settings["enable_support"] == "1"
+        assert settings["default_speed"] == 100.0
+
+    def test_write_settings_json_defaults(self, tmp_path):
+        slicer = OrcaSlicerService()
+        params = SliceParams()
+        settings_path = slicer._write_settings_json(str(tmp_path), params)
+
+        settings = json.loads(Path(settings_path).read_text())
+        assert settings["layer_height"] == 0.2
+        assert settings["sparse_infill_density"] == "20%"
+        assert settings["enable_support"] == "0"
+        assert "default_speed" not in settings

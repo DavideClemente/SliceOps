@@ -66,25 +66,23 @@ class TestSliceEndpointAsync:
 
 
 class TestJobStatusEndpoint:
-    async def test_job_not_found(self, client):
+    async def test_job_not_found(self, client, mock_job_store):
+        mock_job_store.get.return_value = None
         resp = await client.get("/api/v1/jobs/nonexistent")
         assert resp.status_code == 404
 
-    async def test_job_completed(self, client, app):
-        # Store a completed result in app state
-        app.state.job_results = {
-            "job-1": {
-                "status": "completed",
-                "result": {
-                    "estimated_time_seconds": 100,
-                    "estimated_time_human": "1m 40s",
-                    "filament_used_grams": 5.0,
-                    "filament_used_meters": 1.7,
-                    "layer_count": 50,
-                    "estimated_cost": 0.10,
-                    "gcode_download_url": "/api/v1/jobs/job-1/gcode",
-                },
-            }
+    async def test_job_completed(self, client, mock_job_store):
+        mock_job_store.get.return_value = {
+            "status": "completed",
+            "result": {
+                "estimated_time_seconds": 100,
+                "estimated_time_human": "1m 40s",
+                "filament_used_grams": 5.0,
+                "filament_used_meters": 1.7,
+                "layer_count": 50,
+                "estimated_cost": 0.10,
+                "gcode_download_url": "/api/v1/jobs/job-1/gcode",
+            },
         }
         resp = await client.get("/api/v1/jobs/job-1")
         assert resp.status_code == 200
@@ -93,11 +91,12 @@ class TestJobStatusEndpoint:
 
 
 class TestOutputDownload:
-    async def test_download_not_found(self, client):
+    async def test_download_not_found(self, client, mock_job_store):
+        mock_job_store.get.return_value = None
         resp = await client.get("/api/v1/jobs/nonexistent/download")
         assert resp.status_code == 404
 
-    async def test_download_gcode(self, client, app, mock_storage, tmp_path):
+    async def test_download_gcode(self, client, mock_job_store, mock_storage, tmp_path):
         job_dir = tmp_path / "job-1"
         job_dir.mkdir()
         gcode_file = job_dir / "output.gcode"
@@ -105,13 +104,13 @@ class TestOutputDownload:
         mock_storage.get_file_path.return_value = str(gcode_file)
         mock_storage.get_job_dir.return_value = str(job_dir)
 
-        app.state.job_results = {"job-1": {"status": "completed", "output_filename": "output.gcode"}}
+        mock_job_store.get.return_value = {"status": "completed", "output_filename": "output.gcode"}
 
         resp = await client.get("/api/v1/jobs/job-1/download")
         assert resp.status_code == 200
         assert "G28" in resp.text
 
-    async def test_download_3mf(self, client, app, mock_storage, tmp_path):
+    async def test_download_3mf(self, client, mock_job_store, mock_storage, tmp_path):
         import zipfile
         job_dir = tmp_path / "job-2"
         job_dir.mkdir()
@@ -120,30 +119,29 @@ class TestOutputDownload:
             zf.writestr("plate_1.gcode", "G28\n")
         mock_storage.get_file_path.return_value = str(archive_path)
 
-        app.state.job_results = {"job-2": {"status": "completed", "output_filename": "output.gcode.3mf"}}
+        mock_job_store.get.return_value = {"status": "completed", "output_filename": "output.gcode.3mf"}
 
         resp = await client.get("/api/v1/jobs/job-2/download")
         assert resp.status_code == 200
 
 
 class TestFileSizeLimit:
-    async def test_file_too_large_returns_413(self, client, mock_storage, tmp_path):
+    async def test_file_too_large_returns_413(self, client, mock_storage, tmp_path, app):
         job_dir = tmp_path / "test-job"
         job_dir.mkdir()
         mock_storage.create_job_dir.return_value = str(job_dir)
 
-        # Default max is 100MB, create something larger
-        # Instead, override settings to use 1MB limit for testing
-        from app.api import routes
-        original = routes.settings.max_file_size_mb
-        routes.settings.max_file_size_mb = 1
+        # Override plan limits for testing
+        from app.config import PlanLimits
+        low_limits = PlanLimits(rate_limit=60, monthly_quota=5000, max_file_size_mb=1)
+        app.state.settings._plan_limits["free"] = low_limits
+        app.state.settings._plan_limits["paid"] = low_limits
 
         large_content = b"x" * (2 * 1024 * 1024)  # 2MB
         resp = await client.post(
             "/api/v1/slice",
             files={"file": ("big.stl", large_content, "application/octet-stream")},
         )
-        routes.settings.max_file_size_mb = original
         assert resp.status_code == 413
 
 

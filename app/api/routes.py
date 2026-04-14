@@ -1,12 +1,15 @@
+import logging
 import uuid
 
-from fastapi import APIRouter, Request, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, Request, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
 from starlette.background import BackgroundTask
 from typing import Optional
 
 from app.api.dependencies import ingest_file
+from app.auth.dependencies import get_api_key
+from app.auth.models import ApiKeyData
 from app.config import Settings
 from app.models.request import SliceRequest, SUPPORTED_SLICERS
 from app.models.response import (
@@ -16,7 +19,10 @@ from app.models.response import (
     SliceResult as SliceResultResponse,
     ErrorResponse,
 )
+from app.rate_limit.dependencies import require_rate_limit
 from app.worker.tasks import run_slice_job
+
+logger = logging.getLogger("sliceops.routes")
 
 router = APIRouter(prefix="/api/v1")
 settings = Settings()
@@ -30,6 +36,7 @@ async def health():
 @router.post("/slice")
 async def slice_model(
     request: Request,
+    api_key: ApiKeyData = Depends(get_api_key),
     file: Optional[UploadFile] = File(None),
     file_url: Optional[str] = Form(None),
     layer_height: float = Form(0.2),
@@ -41,6 +48,9 @@ async def slice_model(
     nozzle_size: float = Form(0.4),
     slicer: str = Form("prusa-slicer"),
 ):
+    # Rate limit check
+    await require_rate_limit(request, api_key)
+
     try:
         content, filename = await ingest_file(request, file, file_url)
     except ValueError as e:
@@ -67,17 +77,24 @@ async def slice_model(
             detail=f"Unsupported slicer: {slicer}. Supported: {', '.join(SUPPORTED_SLICERS)}",
         )
 
-    max_size = settings.max_file_size_mb * 1024 * 1024
+    # Per-plan file size limit
+    app_settings: Settings = request.app.state.settings
+    limits = app_settings.get_plan_limits(api_key.plan)
+    max_size = limits.max_file_size_mb * 1024 * 1024
+
     if len(content) > max_size:
         raise HTTPException(
             status_code=413,
-            detail=f"File exceeds maximum size of {settings.max_file_size_mb}MB",
+            detail=f"File exceeds maximum size of {limits.max_file_size_mb}MB for {api_key.plan} plan",
         )
 
     job_id = str(uuid.uuid4())
     storage = request.app.state.storage
     storage.create_job_dir(job_id)
     storage.save_file(job_id, "model.stl", content)
+    job_store = request.app.state.job_store
+
+    logger.info("Slice requested", extra={"job_id": job_id, "slicer": slicer, "owner": api_key.owner})
 
     params_dict = {
         "layer_height": layer_height,
@@ -116,6 +133,7 @@ async def slice_model(
             raise HTTPException(status_code=504, detail="Slicer timed out")
         except RuntimeError as e:
             storage.cleanup_job(job_id)
+            logger.error("Slice failed", extra={"job_id": job_id, "error": str(e)})
             raise HTTPException(status_code=500, detail=str(e))
 
         # Delete STL immediately
@@ -134,12 +152,18 @@ async def slice_model(
             gcode_download_url=download_url,
         )
 
-        # Store result for job status lookups
-        request.app.state.job_results[job_id] = {
+        # Store result in Redis job store
+        await job_store.set(job_id, {
             "status": "completed",
             "result": response_result.model_dump(),
             "output_filename": result.output_filename,
-        }
+        })
+
+        # Increment usage after successful slice
+        rate_limit_service = request.app.state.rate_limit_service
+        await rate_limit_service.increment_usage(api_key.key)
+
+        logger.info("Slice completed", extra={"job_id": job_id})
 
         return SyncSliceResponse(job_id=job_id, result=response_result)
 
@@ -147,10 +171,11 @@ async def slice_model(
         # Async path
         task = run_slice_job.delay(job_id=job_id, params_dict=params_dict)
 
-        request.app.state.job_results[job_id] = {
+        await job_store.set(job_id, {
             "status": "pending",
             "celery_task_id": task.id,
-        }
+            "api_key": api_key.key,
+        })
 
         response = AsyncSliceResponse(
             job_id=job_id,
@@ -160,13 +185,13 @@ async def slice_model(
 
 
 @router.get("/jobs/{job_id}")
-async def get_job_status(job_id: str, request: Request):
-    job_results = getattr(request.app.state, "job_results", {})
+async def get_job_status(job_id: str, request: Request, api_key: ApiKeyData = Depends(get_api_key)):
+    job_store = request.app.state.job_store
+    job = await job_store.get(job_id)
 
-    if job_id not in job_results:
+    if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    job = job_results[job_id]
     status = job["status"]
 
     # For async jobs, check Celery task state
@@ -179,11 +204,17 @@ async def get_job_status(job_id: str, request: Request):
             if task_result.successful():
                 result_data = task_result.result
                 result_data["gcode_download_url"] = f"/api/v1/jobs/{job_id}/download"
-                job["status"] = "completed"
-                job["result"] = result_data
+                await job_store.update(job_id, status="completed", result=result_data)
                 status = "completed"
+                job["result"] = result_data
+
+                # Increment usage for async jobs
+                api_key_str = job.get("api_key")
+                if api_key_str:
+                    rate_limit_service = request.app.state.rate_limit_service
+                    await rate_limit_service.increment_usage(api_key_str)
             else:
-                job["status"] = "failed"
+                await job_store.update(job_id, status="failed")
                 status = "failed"
         elif task_result.state == "STARTED":
             status = "processing"
@@ -193,13 +224,14 @@ async def get_job_status(job_id: str, request: Request):
 
 
 @router.get("/jobs/{job_id}/download")
-async def download_output(job_id: str, request: Request):
-    job_results = getattr(request.app.state, "job_results", {})
-    if job_id not in job_results:
+async def download_output(job_id: str, request: Request, api_key: ApiKeyData = Depends(get_api_key)):
+    job_store = request.app.state.job_store
+    job = await job_store.get(job_id)
+
+    if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
     storage = request.app.state.storage
-    job = job_results[job_id]
     output_filename = job.get("output_filename", "output.gcode")
 
     output_path = storage.get_file_path(job_id, output_filename)

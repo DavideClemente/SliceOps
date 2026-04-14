@@ -1,4 +1,7 @@
 import asyncio
+import json
+
+import redis as sync_redis
 
 from app.worker.celery_app import celery_app
 from app.config import Settings
@@ -24,6 +27,10 @@ def get_slicer(name: str = "prusa-slicer") -> BaseSlicer:
 
 def get_storage() -> TempStorage:
     return TempStorage(base_dir=_settings.temp_dir)
+
+
+def _get_sync_redis() -> sync_redis.Redis:
+    return sync_redis.Redis.from_url(_settings.redis_url, decode_responses=True)
 
 
 def _run_async(coro):
@@ -56,7 +63,7 @@ def run_slice_job(self, job_id: str, params_dict: dict) -> dict:
     # Delete STL immediately after slicing
     storage.delete_file(job_id, "model.stl")
 
-    return {
+    result_data = {
         "estimated_time_seconds": result.estimated_time_seconds,
         "estimated_time_human": result.human_time,
         "filament_used_grams": result.filament_used_grams,
@@ -65,6 +72,14 @@ def run_slice_job(self, job_id: str, params_dict: dict) -> dict:
         "estimated_cost": result.compute_cost(filament_cost),
         "output_filename": result.output_filename,
     }
+
+    # Update job in Redis
+    r = _get_sync_redis()
+    job_key = f"sliceops:job:{job_id}"
+    r.hset(job_key, "output_filename", result.output_filename)
+    r.close()
+
+    return result_data
 
 
 @celery_app.task(name="sliceops.sweep_expired")

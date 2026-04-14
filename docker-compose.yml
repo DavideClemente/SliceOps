@@ -12,6 +12,23 @@ services:
       timeout: 5s
       retries: 3
 
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: sliceops
+      POSTGRES_PASSWORD: sliceops
+      POSTGRES_DB: sliceops
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sliceops"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   api:
     build: .
     restart: unless-stopped
@@ -23,8 +40,11 @@ services:
       - SLICEOPS_TEMP_DIR=/tmp/sliceops
       - SLICEOPS_PRUSA_SLICER_PATH=prusa-slicer
       - SLICEOPS_BAMBU_STUDIO_PATH=bambu-studio
+      - SLICEOPS_DATABASE_URL=postgresql+asyncpg://sliceops:sliceops@postgres:5432/sliceops
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     tmpfs:
       - /tmp/sliceops:size=512M
@@ -44,8 +64,11 @@ services:
       - SLICEOPS_TEMP_DIR=/tmp/sliceops
       - SLICEOPS_PRUSA_SLICER_PATH=prusa-slicer
       - SLICEOPS_BAMBU_STUDIO_PATH=bambu-studio
+      - SLICEOPS_DATABASE_URL=postgresql+asyncpg://sliceops:sliceops@postgres:5432/sliceops
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     tmpfs:
       - /tmp/sliceops:size=512M
@@ -72,3 +95,4 @@ services:
 
 volumes:
   redis-data:
+  postgres-data:

@@ -11,3 +11,4 @@ class Settings(BaseSettings):
     slicer_timeout_seconds: int = 300
     redis_url: str = "redis://localhost:6379/0"
     prusa_slicer_path: str = "prusa-slicer"
+    bambu_studio_path: str = "bambu-studio"

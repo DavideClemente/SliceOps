@@ -3,13 +3,19 @@ import asyncio
 from app.worker.celery_app import celery_app
 from app.config import Settings
 from app.services.slicer import BaseSlicer, SliceParams, SliceResult
+from app.services.bambu_studio import BambuStudioService
 from app.services.prusa_slicer import PrusaSlicerService
 from app.storage.temp_storage import TempStorage
 
 _settings = Settings()
 
 
-def get_slicer() -> BaseSlicer:
+def get_slicer(name: str = "prusa-slicer") -> BaseSlicer:
+    if name == "bambu-studio":
+        return BambuStudioService(
+            executable=_settings.bambu_studio_path,
+            timeout=_settings.slicer_timeout_seconds,
+        )
     return PrusaSlicerService(
         executable=_settings.prusa_slicer_path,
         timeout=_settings.slicer_timeout_seconds,
@@ -31,7 +37,8 @@ def _run_async(coro):
 @celery_app.task(name="sliceops.slice_model", bind=True)
 def run_slice_job(self, job_id: str, params_dict: dict) -> dict:
     storage = get_storage()
-    slicer = get_slicer()
+    slicer_name = params_dict.pop("slicer", "prusa-slicer")
+    slicer = get_slicer(slicer_name)
 
     job_dir = storage.get_job_dir(job_id)
     if job_dir is None:
@@ -56,6 +63,7 @@ def run_slice_job(self, job_id: str, params_dict: dict) -> dict:
         "filament_used_meters": result.filament_used_meters,
         "layer_count": result.layer_count,
         "estimated_cost": result.compute_cost(filament_cost),
+        "output_filename": result.output_filename,
     }
 
 

@@ -35,7 +35,10 @@ def mock_slicer():
 def app(mock_storage, mock_slicer):
     application = create_app()
     application.state.storage = mock_storage
-    application.state.slicer = mock_slicer
+    application.state.slicers = {
+        "prusa-slicer": mock_slicer,
+        "bambu-studio": mock_slicer,
+    }
     application.state.job_results = {}
     return application
 

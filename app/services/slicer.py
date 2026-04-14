@@ -33,6 +33,7 @@ class SliceResult:
     filament_used_grams: float
     filament_used_meters: float
     layer_count: int
+    output_filename: str = "output.gcode"
 
     @property
     def human_time(self) -> str:

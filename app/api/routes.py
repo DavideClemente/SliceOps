@@ -8,7 +8,7 @@ from typing import Optional
 
 from app.api.dependencies import ingest_file
 from app.config import Settings
-from app.models.request import SliceRequest
+from app.models.request import SliceRequest, SUPPORTED_SLICERS
 from app.models.response import (
     SyncSliceResponse,
     AsyncSliceResponse,
@@ -39,6 +39,7 @@ async def slice_model(
     filament_type: str = Form("PLA"),
     filament_cost: float = Form(20.0),
     nozzle_size: float = Form(0.4),
+    slicer: str = Form("prusa-slicer"),
 ):
     try:
         content, filename = await ingest_file(request, file, file_url)
@@ -55,9 +56,16 @@ async def slice_model(
             filament_type=filament_type,
             filament_cost=filament_cost,
             nozzle_size=nozzle_size,
+            slicer=slicer,
         )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+    if slicer not in SUPPORTED_SLICERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported slicer: {slicer}. Supported: {', '.join(SUPPORTED_SLICERS)}",
+        )
 
     max_size = settings.max_file_size_mb * 1024 * 1024
     if len(content) > max_size:
@@ -79,13 +87,15 @@ async def slice_model(
         "filament_type": filament_type,
         "filament_cost": filament_cost,
         "nozzle_size": nozzle_size,
+        "slicer": slicer,
     }
 
     file_size_mb = len(content) / (1024 * 1024)
 
     if file_size_mb < settings.sync_threshold_mb:
         # Sync path
-        slicer = request.app.state.slicer
+        slicers = request.app.state.slicers
+        slicer_service = slicers[slicer]
         from app.services.slicer import SliceParams
 
         slicer_params = SliceParams(
@@ -100,7 +110,7 @@ async def slice_model(
         stl_path = storage.get_file_path(job_id, "model.stl") or f"{job_dir}/model.stl"
 
         try:
-            result = await slicer.slice(stl_path, job_dir, slicer_params)
+            result = await slicer_service.slice(stl_path, job_dir, slicer_params)
         except TimeoutError:
             storage.cleanup_job(job_id)
             raise HTTPException(status_code=504, detail="Slicer timed out")
@@ -112,7 +122,7 @@ async def slice_model(
         storage.delete_file(job_id, "model.stl")
 
         cost = result.compute_cost(filament_cost)
-        gcode_url = f"/api/v1/jobs/{job_id}/gcode"
+        download_url = f"/api/v1/jobs/{job_id}/download"
 
         response_result = SliceResultResponse(
             estimated_time_seconds=result.estimated_time_seconds,
@@ -121,13 +131,14 @@ async def slice_model(
             filament_used_meters=result.filament_used_meters,
             layer_count=result.layer_count,
             estimated_cost=cost,
-            gcode_download_url=gcode_url,
+            gcode_download_url=download_url,
         )
 
         # Store result for job status lookups
         request.app.state.job_results[job_id] = {
             "status": "completed",
             "result": response_result.model_dump(),
+            "output_filename": result.output_filename,
         }
 
         return SyncSliceResponse(job_id=job_id, result=response_result)
@@ -167,7 +178,7 @@ async def get_job_status(job_id: str, request: Request):
         if task_result.ready():
             if task_result.successful():
                 result_data = task_result.result
-                result_data["gcode_download_url"] = f"/api/v1/jobs/{job_id}/gcode"
+                result_data["gcode_download_url"] = f"/api/v1/jobs/{job_id}/download"
                 job["status"] = "completed"
                 job["result"] = result_data
                 status = "completed"
@@ -181,23 +192,33 @@ async def get_job_status(job_id: str, request: Request):
     return JobStatusResponse(job_id=job_id, status=status, result=result)
 
 
-@router.get("/jobs/{job_id}/gcode")
-async def download_gcode(job_id: str, request: Request):
+@router.get("/jobs/{job_id}/download")
+async def download_output(job_id: str, request: Request):
     job_results = getattr(request.app.state, "job_results", {})
     if job_id not in job_results:
         raise HTTPException(status_code=404, detail="Job not found")
 
     storage = request.app.state.storage
-    gcode_path = storage.get_file_path(job_id, "output.gcode")
-    if gcode_path is None:
-        raise HTTPException(status_code=404, detail="G-code file not found")
+    job = job_results[job_id]
+    output_filename = job.get("output_filename", "output.gcode")
 
-    # Clean up job after file is sent
+    output_path = storage.get_file_path(job_id, output_filename)
+    if output_path is None:
+        raise HTTPException(status_code=404, detail="Output file not found")
+
+    # Determine media type and download filename
+    if output_filename.endswith(".3mf"):
+        media_type = "application/vnd.ms-package.3dmanufacturing-3dmodel+xml"
+        download_name = f"{job_id}.gcode.3mf"
+    else:
+        media_type = "application/octet-stream"
+        download_name = f"{job_id}.gcode"
+
     cleanup = BackgroundTask(storage.cleanup_job, job_id)
 
     return FileResponse(
-        gcode_path,
-        media_type="application/octet-stream",
-        filename=f"{job_id}.gcode",
+        output_path,
+        media_type=media_type,
+        filename=download_name,
         background=cleanup,
     )

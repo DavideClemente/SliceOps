@@ -1,4 +1,8 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+SUPPORTED_SLICERS = ("prusa-slicer", "bambu-studio")
 
 
 class SliceRequest(BaseModel):
@@ -9,3 +13,4 @@ class SliceRequest(BaseModel):
     filament_type: str = Field(default="PLA", description="Filament type (PLA, PETG, ABS, TPU)")
     filament_cost: float = Field(default=20.0, ge=0, description="Filament cost per kg")
     nozzle_size: float = Field(default=0.4, gt=0, description="Nozzle diameter in mm")
+    slicer: str = Field(default="prusa-slicer", description="Slicer to use (prusa-slicer, bambu-studio)")

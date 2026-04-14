@@ -92,13 +92,12 @@ class TestJobStatusEndpoint:
         assert body["status"] == "completed"
 
 
-class TestGcodeDownload:
-    async def test_gcode_not_found(self, client):
-        resp = await client.get("/api/v1/jobs/nonexistent/gcode")
+class TestOutputDownload:
+    async def test_download_not_found(self, client):
+        resp = await client.get("/api/v1/jobs/nonexistent/download")
         assert resp.status_code == 404
 
-    async def test_gcode_download(self, client, app, mock_storage, tmp_path):
-        # Set up a gcode file
+    async def test_download_gcode(self, client, app, mock_storage, tmp_path):
         job_dir = tmp_path / "job-1"
         job_dir.mkdir()
         gcode_file = job_dir / "output.gcode"
@@ -106,11 +105,25 @@ class TestGcodeDownload:
         mock_storage.get_file_path.return_value = str(gcode_file)
         mock_storage.get_job_dir.return_value = str(job_dir)
 
-        app.state.job_results = {"job-1": {"status": "completed"}}
+        app.state.job_results = {"job-1": {"status": "completed", "output_filename": "output.gcode"}}
 
-        resp = await client.get("/api/v1/jobs/job-1/gcode")
+        resp = await client.get("/api/v1/jobs/job-1/download")
         assert resp.status_code == 200
         assert "G28" in resp.text
+
+    async def test_download_3mf(self, client, app, mock_storage, tmp_path):
+        import zipfile
+        job_dir = tmp_path / "job-2"
+        job_dir.mkdir()
+        archive_path = job_dir / "output.gcode.3mf"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("plate_1.gcode", "G28\n")
+        mock_storage.get_file_path.return_value = str(archive_path)
+
+        app.state.job_results = {"job-2": {"status": "completed", "output_filename": "output.gcode.3mf"}}
+
+        resp = await client.get("/api/v1/jobs/job-2/download")
+        assert resp.status_code == 200
 
 
 class TestFileSizeLimit:
@@ -142,3 +155,11 @@ class TestParameterValidation:
             data={"infill_percent": "150"},
         )
         assert resp.status_code == 422
+
+    async def test_unsupported_slicer_returns_400(self, client):
+        resp = await client.post(
+            "/api/v1/slice",
+            files={"file": ("cube.stl", b"solid cube\nendsolid cube", "application/octet-stream")},
+            data={"slicer": "unknown-slicer"},
+        )
+        assert resp.status_code == 400

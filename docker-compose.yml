@@ -11,6 +11,8 @@ services:
     environment:
       - SLICEOPS_REDIS_URL=redis://redis:6379/0
       - SLICEOPS_TEMP_DIR=/tmp/sliceops
+      - SLICEOPS_PRUSA_SLICER_PATH=prusa-slicer
+      - SLICEOPS_BAMBU_STUDIO_PATH=bambu-studio
     depends_on:
       - redis
     tmpfs:
@@ -24,6 +26,8 @@ services:
     environment:
       - SLICEOPS_REDIS_URL=redis://redis:6379/0
       - SLICEOPS_TEMP_DIR=/tmp/sliceops
+      - SLICEOPS_PRUSA_SLICER_PATH=prusa-slicer
+      - SLICEOPS_BAMBU_STUDIO_PATH=bambu-studio
     depends_on:
       - redis
     tmpfs:

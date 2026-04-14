@@ -75,6 +75,9 @@ def create_app() -> FastAPI:
     from app.api.admin_routes import admin_router
     app.include_router(admin_router)
 
+    from app.api.auth_routes import auth_router
+    app.include_router(auth_router)
+
     Instrumentator().instrument(app)
 
     return app

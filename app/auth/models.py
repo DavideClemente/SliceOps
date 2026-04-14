@@ -32,9 +32,3 @@ class ApiKeyResponse(BaseModel):
     key: str
     active: bool
     created_at: datetime
-
-
-class BillingStatusResponse(BaseModel):
-    plan: str
-    stripe_customer_id: str | None
-    stripe_subscription_id: str | None

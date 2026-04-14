@@ -24,8 +24,6 @@ def upgrade() -> None:
         sa.Column("github_username", sa.String(length=255), nullable=False),
         sa.Column("email", sa.String(length=255), nullable=True),
         sa.Column("plan", sa.String(length=50), server_default="free", nullable=False),
-        sa.Column("stripe_customer_id", sa.String(length=255), nullable=True),
-        sa.Column("stripe_subscription_id", sa.String(length=255), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),

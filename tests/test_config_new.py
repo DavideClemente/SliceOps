@@ -13,13 +13,6 @@ def test_github_oauth_fields_exist():
     assert isinstance(s.github_client_secret, str)
 
 
-def test_stripe_fields_exist():
-    s = Settings()
-    assert isinstance(s.stripe_secret_key, str)
-    assert isinstance(s.stripe_webhook_secret, str)
-    assert isinstance(s.stripe_pro_price_id, str)
-
-
 def test_jwt_fields_exist_with_defaults():
     s = Settings()
     assert isinstance(s.jwt_secret, str)

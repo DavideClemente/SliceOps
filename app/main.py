@@ -87,9 +87,6 @@ def create_app() -> FastAPI:
     from app.api.account_routes import account_router
     app.include_router(account_router)
 
-    from app.api.webhook_routes import webhook_router
-    app.include_router(webhook_router)
-
     Instrumentator().instrument(app)
 
     return app

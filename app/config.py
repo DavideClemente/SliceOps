@@ -61,11 +61,6 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_client_secret: str = ""
 
-    # Stripe
-    stripe_secret_key: str = ""
-    stripe_webhook_secret: str = ""
-    stripe_pro_price_id: str = ""
-
     # JWT
     jwt_secret: str = "change-me-in-production"
     jwt_access_token_minutes: int = 30

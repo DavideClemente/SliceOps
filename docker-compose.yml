@@ -1,11 +1,20 @@
 services:
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   api:
     build: .
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
@@ -14,29 +23,50 @@ services:
       - SLICEOPS_PRUSA_SLICER_PATH=prusa-slicer
       - SLICEOPS_BAMBU_STUDIO_PATH=bambu-studio
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     tmpfs:
       - /tmp/sliceops:size=512M
-    volumes:
-      - ./app:/app/app
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   worker:
     build: .
-    command: uv run celery -A app.worker.celery_app worker --loglevel=info
+    restart: unless-stopped
+    command: uv run celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
     environment:
       - SLICEOPS_REDIS_URL=redis://redis:6379/0
       - SLICEOPS_TEMP_DIR=/tmp/sliceops
       - SLICEOPS_PRUSA_SLICER_PATH=prusa-slicer
       - SLICEOPS_BAMBU_STUDIO_PATH=bambu-studio
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     tmpfs:
       - /tmp/sliceops:size=512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   beat:
     build: .
+    restart: unless-stopped
     command: uv run celery -A app.worker.celery_app beat --loglevel=info
     environment:
       - SLICEOPS_REDIS_URL=redis://redis:6379/0
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  redis-data:

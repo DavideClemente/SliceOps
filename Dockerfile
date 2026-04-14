@@ -1,8 +1,9 @@
 FROM python:3.12-slim
 
-# Install system deps for OrcaSlicer (will need adjustment based on actual OrcaSlicer requirements)
+# Install PrusaSlicer and system deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    prusa-slicer \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv

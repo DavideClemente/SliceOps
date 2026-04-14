@@ -8,7 +8,7 @@ def test_default_settings():
     assert settings.gcode_ttl_minutes == 15
     assert settings.slicer_timeout_seconds == 300
     assert settings.redis_url == "redis://localhost:6379/0"
-    assert settings.orca_slicer_path == "orca-slicer"
+    assert settings.prusa_slicer_path == "prusa-slicer"
 
 
 def test_settings_from_env(monkeypatch):

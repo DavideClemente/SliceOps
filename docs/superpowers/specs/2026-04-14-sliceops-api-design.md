@@ -11,7 +11,7 @@ SliceOps is a Python API service that estimates 3D printing times and costs by i
 - **Language:** Python
 - **Framework:** FastAPI
 - **Task queue:** Celery + Redis
-- **Slicer:** OrcaSlicer CLI (primary), architecture supports adding others later
+- **Slicer:** PrusaSlicer CLI (primary), architecture supports adding others later (e.g., OrcaSlicer)
 - **Dependency management:** uv (pyproject.toml + uv.lock)
 - **Containerization:** Docker + Docker Compose
 
@@ -136,12 +136,12 @@ sliceops/
 
 Abstract base class `BaseSlicer` with a `slice(stl_path, params) -> SliceResult` method. Adding a new slicer means implementing this interface — no other changes required.
 
-### OrcaSlicer CLI
+### PrusaSlicer CLI
 
-`OrcaSlicerService` wraps the CLI:
+`PrusaSlicerService` wraps the CLI:
 
 1. Writes STL to a temp file (if received via upload).
-2. Invokes `orca-slicer --slice <stl_path> --output <gcode_path>` with flags for layer height, infill, speed, supports, filament type, nozzle size.
+2. Invokes `prusa-slicer --export-gcode --output <gcode_path> --layer-height X --fill-density X% ...` with direct CLI flags.
 3. Parses G-code metadata comments (e.g., `; estimated printing time`, `; filament used [g]`) to extract results.
 4. Computes cost from `filament_used_grams` and `filament_cost` per kg.
 
@@ -223,4 +223,4 @@ All configurable via environment variables:
 | `SLICEOPS_GCODE_TTL_MINUTES` | 15 | TTL for G-code files before cleanup |
 | `SLICEOPS_SLICER_TIMEOUT_SECONDS` | 300 | Max time for slicer CLI execution |
 | `SLICEOPS_REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL |
-| `SLICEOPS_ORCA_SLICER_PATH` | `orca-slicer` | Path to OrcaSlicer CLI binary |
+| `SLICEOPS_PRUSA_SLICER_PATH` | `prusa-slicer` | Path to PrusaSlicer CLI binary |

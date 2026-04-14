@@ -1,19 +1,18 @@
 import asyncio
-import json
 import re
 from pathlib import Path
 
 from app.services.slicer import BaseSlicer, SliceParams, SliceResult
 
 
-class OrcaSlicerService(BaseSlicer):
-    def __init__(self, executable: str = "orca-slicer", timeout: int = 300) -> None:
+class PrusaSlicerService(BaseSlicer):
+    def __init__(self, executable: str = "prusa-slicer", timeout: int = 300) -> None:
         self._executable = executable
         self._timeout = timeout
 
     async def slice(self, stl_path: str, output_dir: str, params: SliceParams) -> SliceResult:
         gcode_path = str(Path(output_dir) / "output.gcode")
-        cmd = self._build_command(stl_path, output_dir, params)
+        cmd = self._build_command(stl_path, gcode_path, params)
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -37,29 +36,21 @@ class OrcaSlicerService(BaseSlicer):
         gcode_content = Path(gcode_path).read_text()
         return self._parse_gcode_metadata(gcode_content)
 
-    def _write_settings_json(self, output_dir: str, params: SliceParams) -> str:
-        """Write a slicer settings JSON file and return its path."""
-        settings = {
-            "layer_height": params.layer_height,
-            "sparse_infill_density": f"{params.infill_percent}%",
-            "enable_support": "1" if params.support_material else "0",
-        }
-        if params.print_speed is not None:
-            settings["default_speed"] = params.print_speed
-
-        settings_path = str(Path(output_dir) / "settings.json")
-        Path(settings_path).write_text(json.dumps(settings))
-        return settings_path
-
-    def _build_command(self, stl_path: str, output_dir: str, params: SliceParams) -> list[str]:
-        settings_path = self._write_settings_json(output_dir, params)
+    @staticmethod
+    def _build_command(stl_path: str, gcode_path: str, params: SliceParams) -> list[str]:
         cmd = [
-            self._executable,
-            "--slice", "0",
-            "--load-settings", settings_path,
-            "--outputdir", output_dir,
-            stl_path,
+            "prusa-slicer",
+            "--export-gcode",
+            "--output", gcode_path,
+            "--layer-height", str(params.layer_height),
+            "--fill-density", f"{params.infill_percent}%",
+            "--nozzle-diameter", str(params.nozzle_size),
         ]
+        if params.print_speed is not None:
+            cmd.extend(["--perimeter-speed", str(params.print_speed)])
+        if params.support_material:
+            cmd.append("--support-material")
+        cmd.append(stl_path)
         return cmd
 
     @staticmethod

@@ -10,4 +10,4 @@ class Settings(BaseSettings):
     gcode_ttl_minutes: int = 15
     slicer_timeout_seconds: int = 300
     redis_url: str = "redis://localhost:6379/0"
-    orca_slicer_path: str = "orca-slicer"
+    prusa_slicer_path: str = "prusa-slicer"

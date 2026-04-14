@@ -3,15 +3,15 @@ import asyncio
 from app.worker.celery_app import celery_app
 from app.config import Settings
 from app.services.slicer import BaseSlicer, SliceParams, SliceResult
-from app.services.orca_slicer import OrcaSlicerService
+from app.services.prusa_slicer import PrusaSlicerService
 from app.storage.temp_storage import TempStorage
 
 _settings = Settings()
 
 
 def get_slicer() -> BaseSlicer:
-    return OrcaSlicerService(
-        executable=_settings.orca_slicer_path,
+    return PrusaSlicerService(
+        executable=_settings.prusa_slicer_path,
         timeout=_settings.slicer_timeout_seconds,
     )
 

@@ -1,9 +1,10 @@
 from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.routes import router
 from app.config import Settings
@@ -15,10 +16,21 @@ from app.storage.temp_storage import TempStorage
 from app.store.job_store import JobStore
 from app.rate_limit.service import RateLimitService
 
+settings = Settings()
+
+
+class RateLimitHeaderMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        headers = getattr(request.state, "rate_limit_headers", None)
+        if headers:
+            for key, value in headers.items():
+                response.headers[key] = value
+        return response
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = Settings()
     setup_logging(level=settings.log_level)
 
     app.state.settings = settings
@@ -54,10 +66,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(RateLimitHeaderMiddleware)
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=Settings().cors_origins,
+        allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

@@ -8,7 +8,6 @@ from starlette.background import BackgroundTask
 from typing import Optional
 
 from app.api.dependencies import ingest_file
-from app.config import Settings
 from app.models.request import SliceRequest, SUPPORTED_SLICERS
 from app.models.response import (
     SyncSliceResponse,
@@ -22,7 +21,6 @@ from app.worker.tasks import run_slice_job
 logger = logging.getLogger("sliceops.routes")
 
 router = APIRouter(prefix="/api/v1")
-settings = Settings()
 
 
 @router.get("/health")
@@ -101,7 +99,7 @@ async def slice_model(
 
     file_size_mb = len(content) / (1024 * 1024)
 
-    if file_size_mb < settings.sync_threshold_mb:
+    if file_size_mb < app_settings.sync_threshold_mb:
         slicers = request.app.state.slicers
         slicer_service = slicers[slicer]
         from app.services.slicer import SliceParams

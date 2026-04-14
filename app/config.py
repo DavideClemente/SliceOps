@@ -54,6 +54,26 @@ class Settings(BaseSettings):
     # Phase 4: Plan limits via YAML
     plans_file: str = "config/plans.yaml"
 
+    # Database
+    database_url: str = "postgresql+asyncpg://sliceops:sliceops@localhost:5432/sliceops"
+
+    # GitHub OAuth
+    github_client_id: str = ""
+    github_client_secret: str = ""
+
+    # Stripe
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_pro_price_id: str = ""
+
+    # JWT
+    jwt_secret: str = "change-me-in-production"
+    jwt_access_token_minutes: int = 30
+    jwt_refresh_token_days: int = 30
+
+    # Base URL (for OAuth callback)
+    base_url: str = "http://localhost:8000"
+
     @cached_property
     def _plan_limits(self) -> dict[str, PlanLimits]:
         return load_plan_limits(self.plans_file)

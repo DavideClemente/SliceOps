@@ -6,9 +6,10 @@ from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 
 from app.api.auth_routes import _require_jwt
-from app.auth.models import ApiKeyResponse
+from app.auth.models import ApiKeyResponse, BillingStatusResponse
+from app.billing.service import BillingService
 from app.db.engine import get_session_factory
-from app.db.models import ApiKey
+from app.db.models import ApiKey, User
 
 account_router = APIRouter(prefix="/account", tags=["account"])
 
@@ -74,3 +75,75 @@ async def delete_key(request: Request):
         raise HTTPException(status_code=404, detail="No active API key found")
     await _revoke_api_key(api_key)
     return {"status": "revoked"}
+
+
+async def _get_user(user_id: uuid.UUID) -> User | None:
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        result = await session.execute(
+            select(User).where(User.id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+
+@account_router.get("/billing")
+async def get_billing(request: Request):
+    payload = _require_jwt(request)
+    user_id = uuid.UUID(payload["sub"])
+    user = await _get_user(user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return BillingStatusResponse(
+        plan=user.plan,
+        stripe_customer_id=user.stripe_customer_id,
+        stripe_subscription_id=user.stripe_subscription_id,
+    )
+
+
+@account_router.post("/billing/checkout")
+async def create_checkout(request: Request):
+    payload = _require_jwt(request)
+    user_id = uuid.UUID(payload["sub"])
+    user = await _get_user(user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.plan == "pro":
+        raise HTTPException(status_code=400, detail="Already on Pro plan. Use billing portal to manage subscription.")
+
+    settings = request.app.state.settings
+    billing = BillingService(
+        secret_key=settings.stripe_secret_key,
+        webhook_secret=settings.stripe_webhook_secret,
+        pro_price_id=settings.stripe_pro_price_id,
+    )
+    url = billing.create_checkout_session(
+        user_id=user.id,
+        customer_email=user.email or "",
+        success_url=f"{settings.base_url}/account/billing?success=true",
+        cancel_url=f"{settings.base_url}/account/billing?cancelled=true",
+        stripe_customer_id=user.stripe_customer_id,
+    )
+    return {"checkout_url": url}
+
+
+@account_router.post("/billing/portal")
+async def create_portal(request: Request):
+    payload = _require_jwt(request)
+    user_id = uuid.UUID(payload["sub"])
+    user = await _get_user(user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user.stripe_customer_id:
+        raise HTTPException(status_code=400, detail="No billing account found. Subscribe to Pro first.")
+
+    settings = request.app.state.settings
+    billing = BillingService(
+        secret_key=settings.stripe_secret_key,
+        webhook_secret=settings.stripe_webhook_secret,
+        pro_price_id=settings.stripe_pro_price_id,
+    )
+    url = billing.create_portal_session(
+        customer_id=user.stripe_customer_id,
+        return_url=f"{settings.base_url}/account/billing",
+    )
+    return {"portal_url": url}

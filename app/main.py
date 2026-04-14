@@ -1,9 +1,10 @@
 from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.routes import router
 from app.config import Settings
@@ -13,13 +14,23 @@ from app.services.bambu_studio import BambuStudioService
 from app.services.prusa_slicer import PrusaSlicerService
 from app.storage.temp_storage import TempStorage
 from app.store.job_store import JobStore
-from app.auth.service import AuthService
 from app.rate_limit.service import RateLimitService
+
+settings = Settings()
+
+
+class RateLimitHeaderMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        headers = getattr(request.state, "rate_limit_headers", None)
+        if headers:
+            for key, value in headers.items():
+                response.headers[key] = value
+        return response
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = Settings()
     setup_logging(level=settings.log_level)
 
     app.state.settings = settings
@@ -35,18 +46,12 @@ async def lifespan(app: FastAPI):
         ),
     }
 
-    # Redis client
     redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
     app.state.redis = redis_client
-
-    # Job store (Phase 2)
     app.state.job_store = JobStore(redis_client, ttl_seconds=settings.job_ttl_seconds)
-
-    # Auth service (Phase 3)
-    app.state.auth_service = AuthService(redis_client)
-
-    # Rate limit service (Phase 4)
-    app.state.rate_limit_service = RateLimitService(redis_client, settings)
+    app.state.rate_limit_service = RateLimitService(
+        redis_client, requests_per_minute=settings.rate_limit
+    )
 
     yield
 
@@ -61,19 +66,17 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(RateLimitHeaderMiddleware)
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=Settings().cors_origins,
+        allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     app.include_router(router)
-
-    from app.api.admin_routes import admin_router
-    app.include_router(admin_router)
 
     Instrumentator().instrument(app)
 

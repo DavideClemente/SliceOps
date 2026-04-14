@@ -1,9 +1,0 @@
-free:
-  rate_limit: 5           # requests per minute
-  monthly_quota: 50       # slices per month
-  max_file_size_mb: 25    # max upload in MB
-
-paid:
-  rate_limit: 60
-  monthly_quota: 5000
-  max_file_size_mb: 100

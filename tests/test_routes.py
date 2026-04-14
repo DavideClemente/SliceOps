@@ -12,7 +12,6 @@ class TestHealthEndpoint:
 
 class TestSliceEndpointSync:
     async def test_slice_sync_with_upload(self, client, sample_stl, tmp_path, mock_storage):
-        # Create the job dir so the mock works
         job_dir = tmp_path / "test-job"
         job_dir.mkdir()
         mock_storage.create_job_dir.return_value = str(job_dir)
@@ -40,12 +39,11 @@ class TestSliceEndpointSync:
 
 class TestSliceEndpointAsync:
     async def test_large_file_returns_async(self, client, mock_storage, tmp_path):
-        # Create a file larger than sync threshold (default 10MB)
         job_dir = tmp_path / "test-job"
         job_dir.mkdir()
         mock_storage.create_job_dir.return_value = str(job_dir)
 
-        large_content = b"x" * (11 * 1024 * 1024)  # 11MB
+        large_content = b"x" * (11 * 1024 * 1024)
 
         with patch("app.api.routes.run_slice_job") as mock_task:
             mock_async_result = MagicMock()
@@ -131,13 +129,10 @@ class TestFileSizeLimit:
         job_dir.mkdir()
         mock_storage.create_job_dir.return_value = str(job_dir)
 
-        # Override plan limits for testing
-        from app.config import PlanLimits
-        low_limits = PlanLimits(rate_limit=60, monthly_quota=5000, max_file_size_mb=1)
-        app.state.settings._plan_limits["free"] = low_limits
-        app.state.settings._plan_limits["pro"] = low_limits
+        # Set max to 1MB
+        app.state.settings.max_file_size_mb = 1
 
-        large_content = b"x" * (2 * 1024 * 1024)  # 2MB
+        large_content = b"x" * (2 * 1024 * 1024)
         resp = await client.post(
             "/api/v1/slice",
             files={"file": ("big.stl", large_content, "application/octet-stream")},

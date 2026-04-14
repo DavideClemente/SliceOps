@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Download BambuStudio AppImage
-RUN wget -q "https://github.com/bambulab/BambuStudio/releases/download/v02.02.00.04/Bambu_Studio_linux_ubuntu-v02.02.00.04.AppImage" \
+RUN wget -q "https://github.com/bambulab/BambuStudio/releases/download/v02.05.02.51/BambuStudio_ubuntu-22.04_v02.05.02.51-20260327222803.AppImage" \
     -O /usr/local/bin/bambu-studio-app \
     && chmod +x /usr/local/bin/bambu-studio-app
 
@@ -33,8 +33,9 @@ COPY pyproject.toml uv.lock ./
 # Install dependencies
 RUN uv sync --frozen --no-dev
 
-# Copy application code
+# Copy application code and config
 COPY app/ app/
+COPY config/ config/
 
 EXPOSE 8000
 

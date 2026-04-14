@@ -1,10 +1,7 @@
-import pytest
-
-from app.config import Settings, PlanLimits, load_plan_limits
+from app.config import Settings
 
 
 def test_default_settings(monkeypatch):
-    # Clear env var so .env file doesn't interfere
     monkeypatch.delenv("SLICEOPS_PRUSA_SLICER_PATH", raising=False)
     settings = Settings(_env_file=None)
     assert settings.sync_threshold_mb == 10
@@ -13,90 +10,28 @@ def test_default_settings(monkeypatch):
     assert settings.slicer_timeout_seconds == 300
     assert settings.redis_url == "redis://localhost:6379/0"
     assert settings.prusa_slicer_path == "prusa-slicer"
+    assert settings.rate_limit == 10
+    assert settings.max_file_size_mb == 100
 
 
 def test_settings_from_env(monkeypatch):
     monkeypatch.setenv("SLICEOPS_SYNC_THRESHOLD_MB", "25")
     monkeypatch.setenv("SLICEOPS_TEMP_DIR", "/custom/tmp")
+    monkeypatch.setenv("SLICEOPS_RATE_LIMIT", "30")
+    monkeypatch.setenv("SLICEOPS_MAX_FILE_SIZE_MB", "50")
     settings = Settings()
     assert settings.sync_threshold_mb == 25
     assert settings.temp_dir == "/custom/tmp"
+    assert settings.rate_limit == 30
+    assert settings.max_file_size_mb == 50
 
 
-class TestLoadPlanLimits:
-    def test_load_valid_yaml(self, tmp_path):
-        yaml_file = tmp_path / "plans.yaml"
-        yaml_file.write_text(
-            "free:\n"
-            "  rate_limit: 5\n"
-            "  monthly_quota: 50\n"
-            "  max_file_size_mb: 25\n"
-            "paid:\n"
-            "  rate_limit: 60\n"
-            "  monthly_quota: 5000\n"
-            "  max_file_size_mb: 100\n"
-        )
-        plans = load_plan_limits(yaml_file)
-        assert set(plans.keys()) == {"free", "paid"}
-        assert plans["free"].rate_limit == 5
-        assert plans["free"].monthly_quota == 50
-        assert plans["free"].max_file_size_mb == 25
-        assert plans["paid"].rate_limit == 60
-        assert plans["paid"].monthly_quota == 5000
-        assert plans["paid"].max_file_size_mb == 100
-
-    def test_missing_file_raises(self, tmp_path):
-        with pytest.raises(FileNotFoundError):
-            load_plan_limits(tmp_path / "nonexistent.yaml")
-
-    def test_invalid_schema_raises(self, tmp_path):
-        yaml_file = tmp_path / "plans.yaml"
-        yaml_file.write_text("free:\n  rate_limit: 5\n")
-        with pytest.raises(Exception):
-            load_plan_limits(yaml_file)
-
-    def test_empty_file_raises(self, tmp_path):
-        yaml_file = tmp_path / "plans.yaml"
-        yaml_file.write_text("")
-        with pytest.raises(ValueError):
-            load_plan_limits(yaml_file)
-
-
-class TestSettingsGetPlanLimits:
-    def test_get_valid_plan(self, tmp_path):
-        yaml_file = tmp_path / "plans.yaml"
-        yaml_file.write_text(
-            "free:\n"
-            "  rate_limit: 5\n"
-            "  monthly_quota: 50\n"
-            "  max_file_size_mb: 25\n"
-        )
-        settings = Settings(_env_file=None, plans_file=str(yaml_file))
-        limits = settings.get_plan_limits("free")
-        assert isinstance(limits, PlanLimits)
-        assert limits.rate_limit == 5
-
-    def test_unknown_plan_raises(self, tmp_path):
-        yaml_file = tmp_path / "plans.yaml"
-        yaml_file.write_text(
-            "free:\n"
-            "  rate_limit: 5\n"
-            "  monthly_quota: 50\n"
-            "  max_file_size_mb: 25\n"
-        )
-        settings = Settings(_env_file=None, plans_file=str(yaml_file))
-        with pytest.raises(KeyError, match="Unknown plan"):
-            settings.get_plan_limits("enterprise")
-
-    def test_env_var_override_plans_file(self, monkeypatch, tmp_path):
-        yaml_file = tmp_path / "custom.yaml"
-        yaml_file.write_text(
-            "pro:\n"
-            "  rate_limit: 120\n"
-            "  monthly_quota: 20000\n"
-            "  max_file_size_mb: 500\n"
-        )
-        monkeypatch.setenv("SLICEOPS_PLANS_FILE", str(yaml_file))
-        settings = Settings()
-        limits = settings.get_plan_limits("pro")
-        assert limits.rate_limit == 120
+def test_no_auth_or_db_fields():
+    """Config should not have auth, db, or billing fields."""
+    settings = Settings()
+    assert not hasattr(settings, "database_url")
+    assert not hasattr(settings, "github_client_id")
+    assert not hasattr(settings, "jwt_secret")
+    assert not hasattr(settings, "admin_api_key")
+    assert not hasattr(settings, "plans_file")
+    assert not hasattr(settings, "auth_enabled")

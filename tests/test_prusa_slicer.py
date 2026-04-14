@@ -66,6 +66,8 @@ class TestBuildCommand:
         assert "20%" in cmd
         assert "--nozzle-diameter" in cmd
         assert "0.4" in cmd
+        assert "--filament-density" in cmd
+        assert "1.24" in cmd  # PLA default
         assert "--support-material" not in cmd
         assert "--perimeter-speed" not in cmd
         assert cmd[-1] == "/tmp/model.stl"
@@ -83,6 +85,7 @@ class TestBuildCommand:
         )
         assert "--support-material" in cmd
         assert "--perimeter-speed" in cmd
+        assert "--filament-density" in cmd
         assert "100.0" in cmd
         assert "0.1" in cmd
         assert "80%" in cmd

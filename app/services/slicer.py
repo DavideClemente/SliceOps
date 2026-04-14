@@ -2,6 +2,17 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 
+FILAMENT_DENSITY: dict[str, float] = {
+    "PLA": 1.24,
+    "PETG": 1.27,
+    "ABS": 1.04,
+    "ASA": 1.07,
+    "TPU": 1.21,
+    "NYLON": 1.14,
+    "PC": 1.20,
+}
+
+
 @dataclass
 class SliceParams:
     layer_height: float = 0.2
@@ -10,6 +21,10 @@ class SliceParams:
     support_material: bool = False
     filament_type: str = "PLA"
     nozzle_size: float = 0.4
+
+    @property
+    def filament_density(self) -> float:
+        return FILAMENT_DENSITY.get(self.filament_type.upper(), 1.24)
 
 
 @dataclass

@@ -45,6 +45,7 @@ class PrusaSlicerService(BaseSlicer):
             "--layer-height", str(params.layer_height),
             "--fill-density", f"{params.infill_percent}%",
             "--nozzle-diameter", str(params.nozzle_size),
+            "--filament-density", str(params.filament_density),
         ]
         if params.print_speed is not None:
             cmd.extend(["--perimeter-speed", str(params.print_speed)])

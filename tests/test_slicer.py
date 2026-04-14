@@ -16,6 +16,30 @@ class TestSliceParams:
         assert params.layer_height == 0.1
         assert params.infill_percent == 80
 
+    def test_filament_density_pla(self):
+        params = SliceParams(filament_type="PLA")
+        assert params.filament_density == 1.24
+
+    def test_filament_density_petg(self):
+        params = SliceParams(filament_type="PETG")
+        assert params.filament_density == 1.27
+
+    def test_filament_density_abs(self):
+        params = SliceParams(filament_type="ABS")
+        assert params.filament_density == 1.04
+
+    def test_filament_density_tpu(self):
+        params = SliceParams(filament_type="TPU")
+        assert params.filament_density == 1.21
+
+    def test_filament_density_unknown_defaults_to_pla(self):
+        params = SliceParams(filament_type="EXOTIC")
+        assert params.filament_density == 1.24
+
+    def test_filament_density_case_insensitive(self):
+        params = SliceParams(filament_type="petg")
+        assert params.filament_density == 1.27
+
 
 class TestSliceResult:
     def test_creation(self):

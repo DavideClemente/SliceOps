@@ -15,6 +15,14 @@ def _make_key(plan="free", active=True):
     return ApiKeyData(key="so_live_testkey", owner="tester", plan=plan, active=active, created_at="2025-01-01T00:00:00Z")
 
 
+def _mock_redis_for_key(api_key_data: ApiKeyData):
+    """Create a mock redis that returns cached key data."""
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = api_key_data.model_dump_json()
+    mock_redis.setex.return_value = None
+    return mock_redis
+
+
 @pytest.fixture
 def rl_app(mock_storage, mock_slicer, mock_job_store):
     """App with auth enabled + rate limiting."""
@@ -27,9 +35,8 @@ def rl_app(mock_storage, mock_slicer, mock_job_store):
     application.state.slicers = {"prusa-slicer": mock_slicer, "bambu-studio": mock_slicer}
     application.state.job_store = mock_job_store
 
-    auth_service = AsyncMock()
-    auth_service.validate_key.return_value = _make_key()
-    application.state.auth_service = auth_service
+    # Mock redis to return cached key data
+    application.state.redis = _mock_redis_for_key(_make_key())
 
     rate_limit_service = AsyncMock()
     rate_limit_service.check_rate_limit.return_value = (True, 5, 4, 60)
@@ -87,8 +94,8 @@ class TestRateLimit:
         assert "quota" in resp.json()["detail"].lower()
 
     async def test_paid_has_higher_limits(self, rl_client, rl_app, mock_storage, tmp_path):
-        # Switch to paid plan
-        rl_app.state.auth_service.validate_key.return_value = _make_key(plan="paid")
+        # Switch to paid plan via redis cache
+        rl_app.state.redis = _mock_redis_for_key(_make_key(plan="pro"))
         rl_app.state.rate_limit_service.check_rate_limit.return_value = (True, 60, 59, 60)
         rl_app.state.rate_limit_service.check_monthly_quota.return_value = (True, 5000, 0)
 

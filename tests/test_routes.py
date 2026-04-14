@@ -135,7 +135,7 @@ class TestFileSizeLimit:
         from app.config import PlanLimits
         low_limits = PlanLimits(rate_limit=60, monthly_quota=5000, max_file_size_mb=1)
         app.state.settings._plan_limits["free"] = low_limits
-        app.state.settings._plan_limits["paid"] = low_limits
+        app.state.settings._plan_limits["pro"] = low_limits
 
         large_content = b"x" * (2 * 1024 * 1024)  # 2MB
         resp = await client.post(

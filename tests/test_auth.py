@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -15,6 +16,17 @@ def _make_key(key="so_live_testkey", owner="tester", plan="free", active=True):
     return ApiKeyData(key=key, owner=owner, plan=plan, active=active, created_at="2025-01-01T00:00:00Z")
 
 
+def _mock_redis_for_key(api_key_data: ApiKeyData | None):
+    """Create a mock redis that returns cached key data."""
+    mock_redis = AsyncMock()
+    if api_key_data is not None:
+        mock_redis.get.return_value = api_key_data.model_dump_json()
+    else:
+        mock_redis.get.return_value = None
+    mock_redis.setex.return_value = None
+    return mock_redis
+
+
 @pytest.fixture
 def auth_app(mock_storage, mock_slicer, mock_job_store, mock_rate_limit_service):
     """App with auth ENABLED."""
@@ -28,9 +40,8 @@ def auth_app(mock_storage, mock_slicer, mock_job_store, mock_rate_limit_service)
     application.state.job_store = mock_job_store
     application.state.rate_limit_service = mock_rate_limit_service
 
-    auth_service = AsyncMock()
-    auth_service.validate_key.return_value = None
-    application.state.auth_service = auth_service
+    # Default: no key in cache, no key in DB → 401
+    application.state.redis = _mock_redis_for_key(None)
 
     os.environ["SLICEOPS_AUTH_ENABLED"] = "false"
     return application
@@ -52,16 +63,21 @@ class TestAuthRequired:
         assert resp.status_code == 401
 
     async def test_invalid_api_key_returns_401(self, auth_client, auth_app):
-        auth_app.state.auth_service.validate_key.return_value = None
-        resp = await auth_client.post(
-            "/api/v1/slice",
-            files={"file": ("cube.stl", b"solid cube\nendsolid cube", "application/octet-stream")},
-            headers={"X-API-Key": "invalid_key"},
-        )
+        # Redis cache miss, DB lookup returns None
+        auth_app.state.redis = _mock_redis_for_key(None)
+        with pytest.MonkeyPatch.context() as m:
+            m.setattr("app.auth.dependencies._lookup_key_in_db", AsyncMock(return_value=None))
+            resp = await auth_client.post(
+                "/api/v1/slice",
+                files={"file": ("cube.stl", b"solid cube\nendsolid cube", "application/octet-stream")},
+                headers={"X-API-Key": "invalid_key"},
+            )
         assert resp.status_code == 401
 
     async def test_revoked_key_returns_403(self, auth_client, auth_app):
-        auth_app.state.auth_service.validate_key.return_value = _make_key(active=False)
+        # Return a revoked key from cache
+        revoked_key = _make_key(active=False)
+        auth_app.state.redis = _mock_redis_for_key(revoked_key)
         resp = await auth_client.post(
             "/api/v1/slice",
             files={"file": ("cube.stl", b"solid cube\nendsolid cube", "application/octet-stream")},
@@ -70,7 +86,9 @@ class TestAuthRequired:
         assert resp.status_code == 403
 
     async def test_valid_key_allows_access(self, auth_client, auth_app, mock_storage, tmp_path):
-        auth_app.state.auth_service.validate_key.return_value = _make_key(active=True)
+        # Return a valid key from cache
+        valid_key = _make_key(active=True)
+        auth_app.state.redis = _mock_redis_for_key(valid_key)
 
         job_dir = tmp_path / "test-job"
         job_dir.mkdir()

@@ -28,7 +28,7 @@ async def get_api_key(request: Request) -> ApiKeyData:
         return ApiKeyData(
             key="disabled",
             owner="anonymous",
-            plan="paid",
+            plan="pro",
             active=True,
             created_at="",
         )

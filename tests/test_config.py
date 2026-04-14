@@ -1,8 +1,10 @@
 from app.config import Settings
 
 
-def test_default_settings():
-    settings = Settings()
+def test_default_settings(monkeypatch):
+    # Clear env var so .env file doesn't interfere
+    monkeypatch.delenv("SLICEOPS_PRUSA_SLICER_PATH", raising=False)
+    settings = Settings(_env_file=None)
     assert settings.sync_threshold_mb == 10
     assert settings.temp_dir == "/tmp/sliceops"
     assert settings.gcode_ttl_minutes == 15

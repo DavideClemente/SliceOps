@@ -69,7 +69,8 @@ class PrusaSlicerService(BaseSlicer):
             if time_match:
                 time_seconds = _parse_time_string(time_match.group(1).strip())
 
-            grams_match = re.match(r";\s*filament used \[g\]\s*=\s*([\d.]+)", line)
+            # PrusaSlicer: "; total filament used [g] = X.XX"
+            grams_match = re.match(r";\s*total filament used \[g\]\s*=\s*([\d.]+)", line)
             if grams_match:
                 filament_grams = float(grams_match.group(1))
 
@@ -77,9 +78,9 @@ class PrusaSlicerService(BaseSlicer):
             if mm_match:
                 filament_mm = float(mm_match.group(1))
 
-            layer_match = re.match(r";\s*total layers count\s*=\s*(\d+)", line)
-            if layer_match:
-                layer_count = int(layer_match.group(1))
+            # PrusaSlicer uses ;LAYER_CHANGE markers instead of a count comment
+            if line == ";LAYER_CHANGE":
+                layer_count += 1
 
         return SliceResult(
             estimated_time_seconds=time_seconds,

@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    model_config = {"env_prefix": "SLICEOPS_"}
+    model_config = {"env_prefix": "SLICEOPS_", "env_file": ".env"}
 
     sync_threshold_mb: int = 10
     max_file_size_mb: int = 100

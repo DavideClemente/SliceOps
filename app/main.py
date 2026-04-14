@@ -13,9 +13,7 @@ from app.services.bambu_studio import BambuStudioService
 from app.services.prusa_slicer import PrusaSlicerService
 from app.storage.temp_storage import TempStorage
 from app.store.job_store import JobStore
-from app.auth.service import AuthService
 from app.rate_limit.service import RateLimitService
-from app.db.engine import get_engine, get_session_factory, close_engine
 
 
 @asynccontextmanager
@@ -36,27 +34,16 @@ async def lifespan(app: FastAPI):
         ),
     }
 
-    # Redis client
     redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
     app.state.redis = redis_client
-
-    # Job store (Phase 2)
     app.state.job_store = JobStore(redis_client, ttl_seconds=settings.job_ttl_seconds)
-
-    # Auth service (Phase 3)
-    app.state.auth_service = AuthService(redis_client)
-
-    # Rate limit service (Phase 4)
-    app.state.rate_limit_service = RateLimitService(redis_client, settings)
-
-    # Database engine
-    get_engine(settings)
-    get_session_factory(settings)
+    app.state.rate_limit_service = RateLimitService(
+        redis_client, requests_per_minute=settings.rate_limit
+    )
 
     yield
 
     await redis_client.aclose()
-    await close_engine()
 
 
 def create_app() -> FastAPI:
@@ -77,15 +64,6 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(router)
-
-    from app.api.admin_routes import admin_router
-    app.include_router(admin_router)
-
-    from app.api.auth_routes import auth_router
-    app.include_router(auth_router)
-
-    from app.api.account_routes import account_router
-    app.include_router(account_router)
 
     Instrumentator().instrument(app)
 

@@ -1,5 +1,8 @@
 # SliceOps
 
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/davideclemente)
+
+
 **3D printing estimation API as a service.** Upload an STL, get back print time, filament usage, cost estimate, and production-ready G-code — in seconds.
 
 ## What it does

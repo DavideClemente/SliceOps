@@ -15,6 +15,7 @@ from app.storage.temp_storage import TempStorage
 from app.store.job_store import JobStore
 from app.auth.service import AuthService
 from app.rate_limit.service import RateLimitService
+from app.db.engine import get_engine, get_session_factory, close_engine
 
 
 @asynccontextmanager
@@ -48,9 +49,14 @@ async def lifespan(app: FastAPI):
     # Rate limit service (Phase 4)
     app.state.rate_limit_service = RateLimitService(redis_client, settings)
 
+    # Database engine
+    get_engine(settings)
+    get_session_factory(settings)
+
     yield
 
     await redis_client.aclose()
+    await close_engine()
 
 
 def create_app() -> FastAPI:
@@ -80,6 +86,9 @@ def create_app() -> FastAPI:
 
     from app.api.account_routes import account_router
     app.include_router(account_router)
+
+    from app.api.webhook_routes import webhook_router
+    app.include_router(webhook_router)
 
     Instrumentator().instrument(app)
 
